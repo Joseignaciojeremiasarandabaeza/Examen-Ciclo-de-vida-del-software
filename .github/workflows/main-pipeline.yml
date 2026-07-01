@@ -51,7 +51,7 @@ jobs:
         kubectl apply -f k8s/orders-green.yaml
         
         echo "Simulando anomalía o actualización defectuosa..."
-        kubectl set image deployment/${{ env.DEPLOYMENT_GREEN }} orders-service=nginx:broken-tag-2026
+      # --- kubectl set image deployment/${{ env.DEPLOYMENT_GREEN }} orders-service=nginx:broken-tag-2026
         
         echo "Esperando ventana crítica de observación de los Health Checks..."
         sleep 20
