@@ -1,4 +1,4 @@
-#TechMarket Orders: Operación Resiliencia
+# TechMarket Orders: Operación Resiliencia
 Examen Transversal - Ciclo de Vida del Software
 
 Este repositorio contiene el desarrollo del Examen Transversal, planteado como un desafío de Ingeniería del Caos en un entorno productivo simulado. El objetivo principal es transformar un pipeline de CI/CD precario e inestable en una "Fortaleza Digital", migrando y robusteciendo el microservicio crítico TechMarket Orders dentro de un clúster de Amazon EKS.
