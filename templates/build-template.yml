@@ -1,0 +1,20 @@
+name: "Plantilla Reutilizable - Build & ECR Push"
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Código Fuente desde Repositorio
+      uses: actions/checkout@v4
+      
+    - name: Construir Imagen Docker de Orders
+      run: |
+        echo "Construyendo imagen de TechMarket Orders con TAG: ${{ inputs.image_tag }}"
+        docker build -t 797969583115.dkr.ecr.us-east-1.amazonaws.com/techmarket-orders:${{ inputs.image_tag }} .

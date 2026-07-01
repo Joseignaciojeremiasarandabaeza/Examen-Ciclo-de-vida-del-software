@@ -1,0 +1,69 @@
+name: "Plantilla Reutilizable - Despliegue con Ingeniería del Caos"
+
+on:
+  workflow_call:
+    inputs:
+      target_env:
+        required: true
+        type: string
+
+jobs:
+  deploy-fortress:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Código Fuente desde Repositorio
+      uses: actions/checkout@v4
+
+    - name: Configuración de Credenciales AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: "us-east-1"
+
+    - name: Configurar Contexto de Acceso a Clúster EKS
+      run: |
+        aws eks update-kubeconfig --name duoc-eks-cluster-cli --region us-east-1
+
+    # --- DESPLIEGUE EN ENTORNO NUEVO (GREEN) ---
+    - name: Desplegar Versión de Prueba (Green)
+      id: deploy_green
+      run: |
+        echo "Desplegando nueva versión en el entorno de pruebas Green..."
+        kubectl apply -f k8s/orders-green.yaml
+        
+        echo "🚨 Iniciando ventana crítica de validación de salud (Health Checks)..."
+        sleep 15
+        
+        if ! kubectl rollout status deployment/techmarket-orders-green --timeout=20s; then
+          echo "❌ IMPACTO DETECTADO: El entorno Green ha fallado de manera crítica."
+          exit 1
+        fi
+      continue-on-error: true
+
+    # --- MECANISMO DE CONTROL Y REMEDIACIÓN ANTE EL CAOS ---
+    - name: Ejecutar Acción de Remediación Temprana (Rollback + Notificación SNS)
+      if: steps.deploy_green.outcome == 'failure'
+      run: |
+        echo "💥 CAOS DETECTADO. Activando protocolos de remediación inmediata..."
+        
+        echo "Asegurando el tráfico: Forzando al Servicio a mantenerse apuntando a entorno BLUE sano..."
+        kubectl patch svc techmarket-orders-svc -p '{"spec":{"selector":{"version":"blue"}}}'
+        
+        echo "Purgando pods corruptos generados por el docente..."
+        kubectl delete -f k8s/orders-green.yaml
+        
+        echo "Disparando alerta real a Amazon SNS..."
+        aws sns publish \
+          --topic-arn "arn:aws:sns:us-east-1:797969583115:techmarket-orders-alerts" \
+          --subject "🚨 INGENIERÍA DEL CAOS: TechMarket Orders Autorecuperado" \
+          --message "Alerta en vivo: El docente inyectó una anomalía en el entorno Green. Las sondas automáticas interceptaron el error, abortaron el cambio de tráfico y purgaron el clúster. El servicio sigue online al 100% en el entorno Blue." \
+          --region "us-east-1"
+
+    # --- CAMBIO DE TRÁFICO SI TODO ESTÁ SANO ---
+    - name: Conmutación de Tráfico al 100% (Green)
+      if: steps.deploy_green.outcome == 'success'
+      run: |
+        echo "🍏 Entorno Green verificado con éxito. Conmutando el 100% del tráfico..."
+        kubectl patch svc techmarket-orders-svc -p '{"spec":{"selector":{"version":"green"}}}'
