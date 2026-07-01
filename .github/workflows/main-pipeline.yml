@@ -1,0 +1,19 @@
+name: TechMarket Orders - Examen Transversal
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  run-build-template:
+    
+    uses: ./.templates/build-template.yml
+    with:
+      image_tag: "et-2026-release"
+
+  run-deploy-and-remediation:
+    needs: run-build-template
+   
+    uses: ./.templates/deploy-template.yml
+    with:
+      target_env: "green"
+    secrets: inherit # Hereda de forma segura tus AWS Secrets
