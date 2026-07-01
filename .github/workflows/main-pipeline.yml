@@ -14,7 +14,7 @@ jobs:
   # --- JOB 1: ETAPA DE CONSTRUCCIÓN MODULAR (EP1) ---
   run-build-template:
     name: Ejecutar Plantilla de Construcción
-    uses: ./.github/workflows/template-build.yml@main
+    uses: ./.github/workflows/build-template.yml
     with:
       image_tag: "et-2026-release"
 
@@ -45,20 +45,17 @@ jobs:
       id: deploy_green
       run: |
         echo "Asegurando la existencia del Service base en el clúster..."
-        # Si el service no existe, lo crea. Si ya existe, lo mantiene intacto.
         kubectl apply -f k8s/orders-service.yaml
 
         echo "Aprovisionando entorno aislado Green..."
         kubectl apply -f k8s/orders-green.yaml
         
         echo "Simulando anomalía o actualización defectuosa..."
-        # Emula la imagen rota inyectada por el profesor en vivo
         kubectl set image deployment/${{ env.DEPLOYMENT_GREEN }} orders-service=nginx:broken-tag-2026
         
         echo "Esperando ventana crítica de observación de los Health Checks..."
         sleep 20
         
-        # El pipeline evalúa el estado del nuevo entorno antes de alterar el tráfico de producción
         if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_GREEN }} --timeout=20s; then
           echo "❌ DETECCIÓN: El entorno Green no es saludable. Se deniega el paso a producción."
           echo "status=failed" >> $GITHUB_OUTPUT
@@ -66,7 +63,7 @@ jobs:
         else
           echo "status=success" >> $GITHUB_OUTPUT
         fi
-      continue-on-error: true # Permite pasar al paso de remediación si el if termina en exit 1
+      continue-on-error: true
 
     # --- ETAPA DE ACCIÓN REMEDIATIVA (Aislamiento + Purgado + Alerta Cloud) ---
     - name: Ejecutar Acción de Remediación Temprana Blue-Green
@@ -84,7 +81,7 @@ jobs:
         aws sns publish \
           --topic-arn "arn:aws:sns:us-east-1:797969583115:techmarket-orders-alerts" \
           --subject "🚨 INGENIERÍA DEL CAOS: TechMarket Orders Autorecuperado" \
-          --message "Alerta en vivo: El sistema detectó una anomalía crítica en el entorno Green. Las sondas automatizadas del pipeline bloquearon la conmutación de tráfico, purgaron los pods corruptos del clúster EKS y preservaron la disponibilidad en el entorno Blue estable. 100% Uptime asegurado." \
+          --message "Alerta en vivo: El sistema detectó una anomalía crítica en el entorno Green. Las sondas automatizadas del pipeline blocking la conmutación de tráfico, purgaron los pods corruptos del clúster EKS y preservaron la disponibilidad en el entorno Blue estable. 100% Uptime asegurado." \
           --region "${{ env.AWS_REGION }}"
           
         echo "✓ Sistema blindado de forma autónoma."
