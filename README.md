@@ -37,14 +37,18 @@ El flujo de trabajo se divide en tres pilares fundamentales de la metodología D
                                                 ▼
 [Remediación Automática] <── [Validación] <── [Amazon EKS]
 
-(Puedes expandir esta sección detallando brevemente cómo interactúan tus plantillas y manifiestos).
- Estructura del Repositorio
-
-    .github/workflows/: Workflows principales de GitHub Actions y plantillas reutilizables.
-
-    k8s/: Manifiestos de Kubernetes (Deployment, Service, Ingress, etc.).
-
-    src/: Código fuente del microservicio TechMarket Orders.
+techmarket-orders-fortress/
+├── .github/
+│   └── workflows/
+│       └── main-pipeline.yml         <-- Pipeline Principal (Orquestador plano)
+├── templates/                        <-- Las Plantillas Reutilizables de la EP1 (En la raíz)
+│   ├── build-template.yml
+│   └── deploy-template.yml
+├── k8s/
+│   ├── orders-blue.yaml
+│   ├── orders-green.yaml
+│   └── orders-service.yaml
+└── README.md
 
  Demostración y Defensa
 
