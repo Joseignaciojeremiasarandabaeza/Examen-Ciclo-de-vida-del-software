@@ -24,12 +24,13 @@ spec:
     spec:
       containers:
       - name: orders-service
-        
         image: nginx:latest 
         ports:
         - containerPort: 3000
-        
-        
+        resources:
+          limits:
+            memory: "10Mi" # Provoca el evento OOMKilled inmediato al arrancar
+            cpu: "50m"
         livenessProbe:
           httpGet:
             path: /health
