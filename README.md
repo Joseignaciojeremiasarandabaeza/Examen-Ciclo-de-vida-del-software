@@ -46,7 +46,7 @@ El flujo de trabajo se divide en tres pilares fundamentales de la metodología D
 
     src/: Código fuente del microservicio TechMarket Orders.
 
-🚀 Demostración y Defensa
+ Demostración y Defensa
 
 Este repositorio está estructurado para servir como el soporte visual y técnico único de la presentación final:
 
