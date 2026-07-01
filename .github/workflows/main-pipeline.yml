@@ -5,15 +5,15 @@ on:
 
 jobs:
   run-build-template:
-    
-    uses: ./.templates/build-template.yml
+   
+    uses: ./.templates/build-template.yml@main
     with:
       image_tag: "et-2026-release"
 
   run-deploy-and-remediation:
     needs: run-build-template
-   
-    uses: ./.templates/deploy-template.yml
+    
+    uses: ./.templates/deploy-template.yml@main
     with:
       target_env: "green"
-    secrets: inherit # Hereda de forma segura tus AWS Secrets
+    secrets: inherit 
