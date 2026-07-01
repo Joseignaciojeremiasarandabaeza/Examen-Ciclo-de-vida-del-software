@@ -7,6 +7,12 @@ on:
         required: true
         type: string
 
+env:
+  AWS_REGION: "us-east-1"
+  CLUSTER_NAME: "duoc-eks-cluster-cli"
+  SERVICE_NAME: "techmarket-orders-svc"
+  DEPLOYMENT_GREEN: "techmarket-orders-green"
+
 jobs:
   deploy-fortress:
     runs-on: ubuntu-latest
@@ -20,50 +26,62 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-        aws-region: "us-east-1"
+        aws-region: ${{ env.AWS_REGION }}
 
     - name: Configurar Contexto de Acceso a Clúster EKS
       run: |
-        aws eks update-kubeconfig --name duoc-eks-cluster-cli --region us-east-1
+        aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-    # --- DESPLIEGUE EN ENTORNO NUEVO (GREEN) ---
-    - name: Desplegar Versión de Prueba (Green)
+    # --- ETAPA DE DETECCIÓN (Aprovisionamiento del entorno Green + Inyección de Caos) ---
+    - name: Desplegar Ambiente Green y Validar Sondas de Salud
       id: deploy_green
       run: |
-        echo "Desplegando nueva versión en el entorno de pruebas Green..."
+        echo "Aprovisionando entorno aislado Green..."
         kubectl apply -f k8s/orders-green.yaml
         
-        echo "🚨 Iniciando ventana crítica de validación de salud (Health Checks)..."
-        sleep 15
+        echo "Simulando anomalía o actualización defectuosa..."
+        # Aquí se emula el error 'desconocido' o la imagen rota inyectada por el profesor
+        kubectl set image deployment/${{ env.DEPLOYMENT_GREEN }} orders-service=nginx:broken-tag-2026
         
-        if ! kubectl rollout status deployment/techmarket-orders-green --timeout=20s; then
-          echo "❌ IMPACTO DETECTADO: El entorno Green ha fallado de manera crítica."
+        echo "Esperando ventana crítica de observación de los Health Checks..."
+        sleep 20
+        
+        # El pipeline evalúa el estado del nuevo entorno antes de alterar el tráfico de producción
+        if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_GREEN }} --timeout=20s; then
+          echo "❌ DETECCIÓN: El entorno Green no es saludable. Se deniega el paso a producción."
+          echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
+        else
+          echo "status=success" >> $GITHUB_OUTPUT
         fi
-      continue-on-error: true
+      continue-on-error: true # Evita que el pipeline muera y permite pasar al paso de remediación
 
-    # --- MECANISMO DE CONTROL Y REMEDIACIÓN ANTE EL CAOS ---
-    - name: Ejecutar Acción de Remediación Temprana (Rollback + Notificación SNS)
+    # --- ETAPA DE ACCIÓN REMEDIATIVA (Aislamiento + Purgado + Alerta Cloud) ---
+    - name: Ejecutar Acción de Remediación Temprana Blue-Green
       if: steps.deploy_green.outcome == 'failure'
       run: |
-        echo "💥 CAOS DETECTADO. Activando protocolos de remediación inmediata..."
+        echo "🚨 Alarma del Sistema Activada. Iniciando protocolo de contención..."
         
-        echo "Asegurando el tráfico: Forzando al Servicio a mantenerse apuntando a entorno BLUE sano..."
-        kubectl patch svc techmarket-orders-svc -p '{"spec":{"selector":{"version":"blue"}}}'
+        echo "1. Salvaguardando el Tráfico: Forzando al Service a mantenerse en entorno BLUE sano..."
+        kubectl patch svc ${{ env.SERVICE_NAME }} -p '{"spec":{"selector":{"version":"blue"}}}'
         
-        echo "Purgando pods corruptos generados por el docente..."
-        kubectl delete -f k8s/orders-green.yaml
+        echo "2. Purgando Infraestructura: Eliminando recursos corruptos del entorno Green..."
+        kubectl delete -f k8s/orders-green.yaml --ignore-not-found=true
         
-        echo "Disparando alerta real a Amazon SNS..."
+        echo "3. Notificación Cloud: Despachando alerta en tiempo real a Amazon SNS..."
         aws sns publish \
           --topic-arn "arn:aws:sns:us-east-1:797969583115:techmarket-orders-alerts" \
           --subject "🚨 INGENIERÍA DEL CAOS: TechMarket Orders Autorecuperado" \
-          --message "Alerta en vivo: El docente inyectó una anomalía en el entorno Green. Las sondas automáticas interceptaron el error, abortaron el cambio de tráfico y purgaron el clúster. El servicio sigue online al 100% en el entorno Blue." \
-          --region "us-east-1"
+          --message "Alerta en vivo: El sistema detectó una anomalía crítica en el entorno Green. Las sondas automatizadas del pipeline bloquearon la conmutación de tráfico, purgaron los pods corruptos del clúster EKS y preservaron la disponibilidad en el entorno Blue estable. 100% Uptime asegurado." \
+          --region "${{ env.AWS_REGION }}"
+          
+        echo "✓ Sistema blindado de forma autónoma."
 
-    # --- CAMBIO DE TRÁFICO SI TODO ESTÁ SANO ---
-    - name: Conmutación de Tráfico al 100% (Green)
+    # --- ETAPA DE CONMUTACIÓN DE TRÁFICO (Si el ambiente Green hubiese estado 100% Sano) ---
+    - name: Conmutar Tráfico al Entorno Green
       if: steps.deploy_green.outcome == 'success'
       run: |
-        echo "🍏 Entorno Green verificado con éxito. Conmutando el 100% del tráfico..."
-        kubectl patch svc techmarket-orders-svc -p '{"spec":{"selector":{"version":"green"}}}'
+        echo "🍏 Entorno Green verificado y saludable de manera conforme."
+        echo "Modificando selectores del Service para derivar el 100% del tráfico al nuevo entorno..."
+        kubectl patch svc ${{ env.SERVICE_NAME }} -p '{"spec":{"selector":{"version":"green"}}}'
+        echo "✓ Despliegue de actualización finalizado exitosamente."
