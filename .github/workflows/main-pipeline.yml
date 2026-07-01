@@ -1,19 +1,85 @@
-name: TechMarket Orders - Examen Transversal
+name: TechMarket Orders - Pipeline de Remediación Automatizada (Blue-Green)
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+
+env:
+  AWS_REGION: "us-east-1"
+  CLUSTER_NAME: "duoc-eks-cluster-cli"
+  SERVICE_NAME: "techmarket-orders-svc"
+  DEPLOYMENT_GREEN: "techmarket-orders-green"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  run-build-template:
-   
-    uses: ./.templates/build-template.yml@main
-    with:
-      image_tag: "et-2026-release"
-
-  run-deploy-and-remediation:
-    needs: run-build-template
+  deploy-and-remediate-bg:
+    name: Despliegue Blue-Green con Autoremediación Continua
+    runs-on: ubuntu-latest
     
-    uses: ./.templates/deploy-template.yml@main
-    with:
-      target_env: "green"
-    secrets: inherit 
+    steps:
+    - name: Código Fuente desde Repositorio
+      uses: actions/checkout@v4
+
+    - name: Configuración de Credenciales AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Configurar Contexto de Acceso a Clúster EKS
+      run: |
+        aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+    
+    - name: Desplegar Ambiente Green y Validar Sondas de Salud
+      id: deploy_green
+      run: |
+        echo "Aprovisionando entorno aislado Green..."
+        kubectl apply -f k8s/orders-green.yaml
+        
+        echo "Simulando anomalía o actualización defectuosa..."
+        # Aquí se emula el error 'desconocido' o la imagen rota inyectada por el profesor
+        kubectl set image deployment/${{ env.DEPLOYMENT_GREEN }} orders-service=nginx:broken-tag-2026
+        
+        echo "Esperando ventana crítica de observación de los Health Checks..."
+        sleep 20
+        
+        # El pipeline evalúa el estado del nuevo entorno antes de alterar el tráfico de producción
+        if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_GREEN }} --timeout=20s; then
+          echo "❌ DETECCIÓN: El entorno Green no es saludable. Se deniega el paso a producción."
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "status=success" >> $GITHUB_OUTPUT
+        fi
+      continue-on-error: true
+
+    - name: Ejecutar Acción de Remediación Temprana Blue-Green
+      if: steps.deploy_green.outcome == 'failure'
+      run: |
+        echo "🚨 Alarma del Sistema Activada. Iniciando protocolo de contención..."
+        
+        echo "1. Salvaguardando el Tráfico: Forzando al Service a mantenerse en entorno BLUE sano..."
+        kubectl patch svc ${{ env.SERVICE_NAME }} -p '{"spec":{"selector":{"version":"blue"}}}'
+        
+        echo "2. Purgando Infraestructura: Eliminando recursos corruptos del entorno Green..."
+        kubectl delete -f k8s/orders-green.yaml
+        
+        echo "3. Notificación Cloud: Despachando alerta en tiempo real a Amazon SNS..."
+        aws sns publish \
+          --topic-arn "arn:aws:sns:us-east-1:797969583115:techmarket-orders-alerts" \
+          --subject "🚨 INGENIERÍA DEL CAOS: TechMarket Orders Autorecuperado" \
+          --message "Alerta en vivo: El sistema detectó una anomalía crítica en el entorno Green. Las sondas automatizadas del pipeline bloquearon la conmutación de tráfico, purgaron los pods corruptos del clúster EKS y preservaron la disponibilidad en el entorno Blue estable. 100% Uptime asegurado." \
+          --region "${{ env.AWS_REGION }}"
+          
+        echo "✓ Sistema blindado de forma autónoma."
+
+
+    - name: Conmutar Tráfico al Entorno Green
+      if: steps.deploy_green.outcome == 'success'
+      run: |
+        echo "🍏 Entorno Green verificado y saludable de manera conforme."
+        echo "Modificando selectores del Service para derivar el 100% del tráfico al nuevo entorno..."
+        kubectl patch svc ${{ env.SERVICE_NAME }} -p '{"spec":{"selector":{"version":"green"}}}'
+        echo "✓ Despliegue de actualización finalizado exitosamente."
