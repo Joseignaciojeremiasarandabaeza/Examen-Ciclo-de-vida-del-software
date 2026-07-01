@@ -1,18 +1,27 @@
-name: TechMarket Orders - Pipeline de Remediación Automatizada (Blue-Green)
+name: TechMarket Orders - Examen Transversal
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Gatillo manual para tu Defensa en Vivo frente a la comisión
 
 env:
   AWS_REGION: "us-east-1"
   CLUSTER_NAME: "duoc-eks-cluster-cli"
   SERVICE_NAME: "techmarket-orders-svc"
   DEPLOYMENT_GREEN: "techmarket-orders-green"
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true" # Garantiza la compatibilidad del runner
 
 jobs:
+  # --- JOB 1: ETAPA DE CONSTRUCCIÓN MODULAR (EP1) ---
+  run-build-template:
+    name: Ejecutar Plantilla de Construcción
+    uses: ./.github/workflows/template-build.yml@main
+    with:
+      image_tag: "et-2026-release"
+
+  # --- JOB 2: ENTORNO INTEGRADO DE DESPLIEGUE, CAOS Y AUTOREMEDIACIÓN ---
   deploy-and-remediate-bg:
     name: Despliegue Blue-Green con Autoremediación Continua
+    needs: run-build-template # Garantiza que no se despliegue si el Build falla
     runs-on: ubuntu-latest
     
     steps:
@@ -31,7 +40,7 @@ jobs:
       run: |
         aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-    
+    # --- ETAPA DE DETECCIÓN (Aprovisionamiento del entorno Green + Inyección de Caos) ---
     - name: Desplegar Ambiente Green y Validar Sondas de Salud
       id: deploy_green
       run: |
@@ -53,8 +62,9 @@ jobs:
         else
           echo "status=success" >> $GITHUB_OUTPUT
         fi
-      continue-on-error: true
+      continue-on-error: true # Evita que el pipeline muera y permite pasar al paso de remediación
 
+    # --- ETAPA DE ACCIÓN REMEDIATIVA (Aislamiento + Purgado + Alerta Cloud) ---
     - name: Ejecutar Acción de Remediación Temprana Blue-Green
       if: steps.deploy_green.outcome == 'failure'
       run: |
@@ -64,7 +74,7 @@ jobs:
         kubectl patch svc ${{ env.SERVICE_NAME }} -p '{"spec":{"selector":{"version":"blue"}}}'
         
         echo "2. Purgando Infraestructura: Eliminando recursos corruptos del entorno Green..."
-        kubectl delete -f k8s/orders-green.yaml
+        kubectl delete -f k8s/orders-green.yaml --ignore-not-found=true
         
         echo "3. Notificación Cloud: Despachando alerta en tiempo real a Amazon SNS..."
         aws sns publish \
@@ -75,7 +85,7 @@ jobs:
           
         echo "✓ Sistema blindado de forma autónoma."
 
-
+    # --- ETAPA DE CONMUTACIÓN DE TRÁFICO (Si el ambiente Green hubiese estado 100% Sano) ---
     - name: Conmutar Tráfico al Entorno Green
       if: steps.deploy_green.outcome == 'success'
       run: |
